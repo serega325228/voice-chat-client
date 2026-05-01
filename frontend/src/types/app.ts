@@ -1,4 +1,5 @@
 export type AppPage = "auth" | "join" | "call";
+export type CallStatus = "idle" | "active";
 
 export interface Participant {
   id: string;
@@ -11,6 +12,8 @@ export interface AppState {
   isAuthenticated: boolean;
   currentPage: AppPage;
   currentSessionId: string;
+  callStatus: CallStatus;
+  callInfo: string | null;
   isMuted: boolean;
   isLoading: boolean;
   isBootstrapped: boolean;

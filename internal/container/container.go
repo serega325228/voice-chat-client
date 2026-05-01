@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	defaultAPIBaseURL  = "http://localhost:8080"
+	defaultAPIBaseURL  = "http://localhost:8082"
 	defaultKeyringName = "voice-chat-client"
 )
 
@@ -164,7 +164,9 @@ func (c *Container) SignalingService() (*service.SignalingService, error) {
 		return nil, err
 	}
 
-	signalingService := service.NewSignalingService(signalingClient, nil)
+	signalingService := service.NewSignalingService(signalingClient, func() (service.WebRTCPeer, error) {
+		return service.NewManagedSessionPeer(service.WebRTCConfig{}, service.DefaultSoundConfig())
+	})
 
 	c.mu.Lock()
 	defer c.mu.Unlock()

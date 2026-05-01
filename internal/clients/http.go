@@ -13,6 +13,23 @@ import (
 
 type AccessTokenProvider func() string
 
+type RequestError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *RequestError) Error() string {
+	if e == nil {
+		return "request failed"
+	}
+
+	if e.Message != "" {
+		return e.Message
+	}
+
+	return fmt.Sprintf("request failed with status %d", e.StatusCode)
+}
+
 type ClientConfig struct {
 	BaseURL             string
 	WebSocketBaseURL    string
@@ -123,14 +140,17 @@ func (c *apiClient) doJSON(request *http.Request, out any) error {
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		message, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
 		if readErr != nil {
-			return fmt.Errorf("client: status %d", response.StatusCode)
+			return &RequestError{StatusCode: response.StatusCode}
 		}
 
 		if trimmed := strings.TrimSpace(string(message)); trimmed != "" {
-			return fmt.Errorf("client: status %d: %s", response.StatusCode, trimmed)
+			return &RequestError{
+				StatusCode: response.StatusCode,
+				Message:    trimmed,
+			}
 		}
 
-		return fmt.Errorf("client: status %d", response.StatusCode)
+		return &RequestError{StatusCode: response.StatusCode}
 	}
 
 	if out == nil {

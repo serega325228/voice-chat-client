@@ -20,10 +20,30 @@ type WebRTCPeer interface {
 	SetAnswer(answer webrtc.SessionDescription) error
 	AddRemoteCandidate(candidate webrtc.ICECandidateInit) error
 	DrainLocalCandidates() []webrtc.ICECandidateInit
+	SetMuted(muted bool)
+	IsMuted() bool
 	Close() error
 }
 
 type WebRTCPeerFactory func() (WebRTCPeer, error)
+
+type SessionEventKind string
+
+const (
+	SessionEventStarted     SessionEventKind = "started"
+	SessionEventLeft        SessionEventKind = "left"
+	SessionEventFailed      SessionEventKind = "failed"
+	SessionEventMuteChanged SessionEventKind = "mute_changed"
+)
+
+type SessionEvent struct {
+	Kind      SessionEventKind `json:"kind"`
+	SessionID string           `json:"sessionId,omitempty"`
+	IsMuted   bool             `json:"isMuted"`
+	Message   string           `json:"message,omitempty"`
+}
+
+type SessionEventHandler func(SessionEvent)
 
 type SignalingService struct {
 	client        *client.SignalingClient
@@ -33,6 +53,7 @@ type SignalingService struct {
 	session    *client.Session
 	peer       WebRTCPeer
 	loopCancel context.CancelFunc
+	onEvent    SessionEventHandler
 }
 
 func NewSignalingService(signalingClient *client.SignalingClient, newWebRTCPeer WebRTCPeerFactory) *SignalingService {
@@ -43,7 +64,7 @@ func NewSignalingService(signalingClient *client.SignalingClient, newWebRTCPeer 
 }
 
 func (s *SignalingService) CreateSession() (*client.Session, error) {
-	if err := s.closeCurrentSession(true); err != nil {
+	if err := s.closeCurrentSession(); err != nil {
 		return nil, err
 	}
 
@@ -52,13 +73,16 @@ func (s *SignalingService) CreateSession() (*client.Session, error) {
 		return nil, err
 	}
 
-	s.storeSession(session)
+	if err := s.startSession(session, true); err != nil {
+		_ = s.closeCurrentSession()
+		return nil, err
+	}
 
 	return session, nil
 }
 
 func (s *SignalingService) JoinSession(sessionID string) (*client.Session, error) {
-	if err := s.closeCurrentSession(true); err != nil {
+	if err := s.closeCurrentSession(); err != nil {
 		return nil, err
 	}
 
@@ -67,13 +91,34 @@ func (s *SignalingService) JoinSession(sessionID string) (*client.Session, error
 		return nil, err
 	}
 
-	s.storeSession(session)
+	if err := s.startSession(session, false); err != nil {
+		_ = s.closeCurrentSession()
+		return nil, err
+	}
 
 	return session, nil
 }
 
 func (s *SignalingService) LeaveSession() error {
-	return s.closeCurrentSession(true)
+	s.mu.Lock()
+	sessionID := ""
+	if s.session != nil {
+		sessionID = s.session.ID
+	}
+	s.mu.Unlock()
+
+	if err := s.closeCurrentSession(); err != nil {
+		return err
+	}
+
+	if sessionID != "" {
+		s.emitEvent(SessionEvent{
+			Kind:      SessionEventLeft,
+			SessionID: sessionID,
+		})
+	}
+
+	return nil
 }
 
 func (s *SignalingService) startSession(session *client.Session, sendOffer bool) error {
@@ -83,11 +128,6 @@ func (s *SignalingService) startSession(session *client.Session, sendOffer bool)
 
 	peer, err := s.newWebRTCPeer()
 	if err != nil {
-		return err
-	}
-
-	if err := s.client.Connect(session); err != nil {
-		peer.Close()
 		return err
 	}
 
@@ -124,15 +164,56 @@ func (s *SignalingService) startSession(session *client.Session, sendOffer bool)
 	}
 
 	s.flushLocalCandidates(session.ID, peer)
+	s.emitEvent(SessionEvent{
+		Kind:      SessionEventStarted,
+		SessionID: session.ID,
+		IsMuted:   peer.IsMuted(),
+		Message:   "Аудиоканал и signaling запущены",
+	})
 
 	return nil
 }
 
-func (s *SignalingService) storeSession(session *client.Session) {
+func (s *SignalingService) SetEventHandler(handler SessionEventHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.session = session
+	s.onEvent = handler
+}
+
+func (s *SignalingService) SetMuted(muted bool) error {
+	s.mu.Lock()
+	peer := s.peer
+	sessionID := ""
+	if s.session != nil {
+		sessionID = s.session.ID
+	}
+	s.mu.Unlock()
+
+	if peer == nil {
+		return errors.New("signaling: no active session")
+	}
+
+	peer.SetMuted(muted)
+	s.emitEvent(SessionEvent{
+		Kind:      SessionEventMuteChanged,
+		SessionID: sessionID,
+		IsMuted:   peer.IsMuted(),
+		Message:   mutedStateMessage(peer.IsMuted()),
+	})
+
+	return nil
+}
+
+func (s *SignalingService) IsMuted() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.peer == nil {
+		return false
+	}
+
+	return s.peer.IsMuted()
 }
 
 func (s *SignalingService) forwardLocalCandidates(ctx context.Context, sessionID string, peer WebRTCPeer) {
@@ -159,9 +240,13 @@ func (s *SignalingService) consumeSignalingMessages(ctx context.Context, session
 
 		message, err := s.client.Receive()
 		if err != nil {
+			if errors.Is(err, client.ErrSignalingAcknowledgement) {
+				continue
+			}
 			if errors.Is(err, io.EOF) || websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 				return
 			}
+			s.reportAsyncError(err)
 			return
 		}
 
@@ -177,11 +262,15 @@ func (s *SignalingService) handleSignalingMessage(sessionID string, peer WebRTCP
 	switch message.Type {
 	case client.SignalingEventCandidate:
 		if message.Candidate != nil {
-			peer.AddRemoteCandidate(*message.Candidate)
+			if err := peer.AddRemoteCandidate(*message.Candidate); err != nil {
+				s.reportAsyncError(err)
+			}
 		}
 	case client.SignalingEventAnswer:
 		if message.Answer != nil {
-			peer.SetAnswer(*message.Answer)
+			if err := peer.SetAnswer(*message.Answer); err != nil {
+				s.reportAsyncError(err)
+			}
 		}
 	case client.SignalingEventOffer, client.SignalingEventRenegotiationNeeded:
 		if message.Offer == nil {
@@ -190,14 +279,18 @@ func (s *SignalingService) handleSignalingMessage(sessionID string, peer WebRTCP
 
 		answer, err := peer.CreateAnswer(*message.Offer)
 		if err != nil {
+			s.reportAsyncError(err)
 			return
 		}
 
-		s.client.Send(client.SignalingMessage{
+		if err := s.client.Send(client.SignalingMessage{
 			Type:      client.SignalingEventAnswer,
 			SessionID: sessionID,
 			Answer:    &answer,
-		})
+		}); err != nil {
+			s.reportAsyncError(err)
+			return
+		}
 		s.flushLocalCandidates(sessionID, peer)
 	}
 }
@@ -210,14 +303,14 @@ func (s *SignalingService) flushLocalCandidates(sessionID string, peer WebRTCPee
 			SessionID: sessionID,
 			Candidate: &candidate,
 		}); err != nil {
+			s.reportAsyncError(err)
 			return
 		}
 	}
 }
 
-func (s *SignalingService) closeCurrentSession(notifyServer bool) error {
+func (s *SignalingService) closeCurrentSession() error {
 	s.mu.Lock()
-	session := s.session
 	peer := s.peer
 	cancel := s.loopCancel
 	s.session = nil
@@ -229,23 +322,58 @@ func (s *SignalingService) closeCurrentSession(notifyServer bool) error {
 		cancel()
 	}
 
-	var result error
-
 	if err := s.client.Close(); err != nil {
-		result = err
-	}
-
-	if notifyServer && session != nil {
-		if err := s.client.LeaveSession(session.ID); err != nil && result == nil {
-			result = err
-		}
+		return err
 	}
 
 	if peer != nil {
-		if err := peer.Close(); err != nil && result == nil {
-			result = err
+		if err := peer.Close(); err != nil {
+			return err
 		}
 	}
 
-	return result
+	return nil
+}
+
+func (s *SignalingService) reportAsyncError(err error) {
+	if err == nil {
+		return
+	}
+
+	s.mu.Lock()
+	active := s.session != nil
+	sessionID := ""
+	if s.session != nil {
+		sessionID = s.session.ID
+	}
+	s.mu.Unlock()
+
+	if !active {
+		return
+	}
+
+	_ = s.closeCurrentSession()
+	s.emitEvent(SessionEvent{
+		Kind:      SessionEventFailed,
+		SessionID: sessionID,
+		Message:   err.Error(),
+	})
+}
+
+func (s *SignalingService) emitEvent(event SessionEvent) {
+	s.mu.Lock()
+	handler := s.onEvent
+	s.mu.Unlock()
+
+	if handler != nil {
+		handler(event)
+	}
+}
+
+func mutedStateMessage(muted bool) string {
+	if muted {
+		return "Микрофон выключен"
+	}
+
+	return "Микрофон включен"
 }

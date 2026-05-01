@@ -3,14 +3,22 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"strings"
+	clientpkg "voice-chat-client/internal/clients"
 	containerpkg "voice-chat-client/internal/container"
+	servicepkg "voice-chat-client/internal/services"
 
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/zalando/go-keyring"
 )
 
-type SessionResult struct {
-	ID string `json:"id"`
+type CallStateResult struct {
+	SessionID string `json:"sessionId,omitempty"`
+	IsMuted   bool   `json:"isMuted"`
+	Status    string `json:"status"`
+	Message   string `json:"message,omitempty"`
 }
 
 type App struct {
@@ -48,6 +56,11 @@ func (a *App) Bootstrap() BootstrapResult {
 		if errors.Is(err, keyring.ErrNotFound) {
 			return BootstrapResult{}
 		}
+		if isUnauthorizedRequest(err) {
+			return BootstrapResult{
+				AuthInfo: "Сессия истекла, войдите снова",
+			}
+		}
 
 		return BootstrapResult{
 			AuthError: "Не удалось восстановить сессию",
@@ -78,43 +91,142 @@ func (a *App) Register(username, email, password string) error {
 	return authService.Register(strings.TrimSpace(username), strings.TrimSpace(email), password)
 }
 
-func (a *App) CreateSession() (SessionResult, error) {
-	signalingService, err := a.container.SignalingService()
+func (a *App) CreateSession() (CallStateResult, error) {
+	return a.withSessionRetry(func(signalingService *servicepkg.SignalingService) (CallStateResult, error) {
+		session, err := signalingService.CreateSession()
+		if err != nil {
+			return CallStateResult{}, err
+		}
+
+		return CallStateResult{
+			SessionID: session.ID,
+			IsMuted:   signalingService.IsMuted(),
+			Status:    "active",
+			Message:   "Сессия создана и аудиоканал запущен",
+		}, nil
+	})
+}
+
+func (a *App) JoinSession(sessionID string) (CallStateResult, error) {
+	normalizedSessionID := strings.TrimSpace(sessionID)
+
+	return a.withSessionRetry(func(signalingService *servicepkg.SignalingService) (CallStateResult, error) {
+		session, err := signalingService.JoinSession(normalizedSessionID)
+		if err != nil {
+			return CallStateResult{}, err
+		}
+
+		return CallStateResult{
+			SessionID: session.ID,
+			IsMuted:   signalingService.IsMuted(),
+			Status:    "active",
+			Message:   "Подключение к сессии выполнено",
+		}, nil
+	})
+}
+
+func (a *App) LeaveSession() (CallStateResult, error) {
+	signalingService, err := a.signalingService()
 	if err != nil {
-		return SessionResult{}, err
+		return CallStateResult{}, err
 	}
 
-	session, err := signalingService.CreateSession()
-	if err != nil {
-		return SessionResult{}, err
+	if err := signalingService.LeaveSession(); err != nil {
+		return CallStateResult{}, err
 	}
 
-	return SessionResult{
-		ID: session.ID,
+	return CallStateResult{
+		Status:  "idle",
+		IsMuted: false,
+		Message: "Сессия завершена",
 	}, nil
 }
 
-func (a *App) JoinSession(sessionID string) (SessionResult, error) {
-	signalingService, err := a.container.SignalingService()
+func (a *App) SetMicrophoneMuted(muted bool) (CallStateResult, error) {
+	signalingService, err := a.signalingService()
 	if err != nil {
-		return SessionResult{}, err
+		return CallStateResult{}, err
 	}
 
-	session, err := signalingService.JoinSession(strings.TrimSpace(sessionID))
-	if err != nil {
-		return SessionResult{}, err
+	if err := signalingService.SetMuted(muted); err != nil {
+		return CallStateResult{}, err
 	}
 
-	return SessionResult{
-		ID: session.ID,
+	return CallStateResult{
+		Status:  "active",
+		IsMuted: signalingService.IsMuted(),
+		Message: microphoneMessage(signalingService.IsMuted()),
 	}, nil
 }
 
-func (a *App) LeaveSession() error {
+func (a *App) signalingService() (*servicepkg.SignalingService, error) {
 	signalingService, err := a.container.SignalingService()
+	if err != nil {
+		return nil, err
+	}
+
+	signalingService.SetEventHandler(a.emitCallEvent)
+
+	return signalingService, nil
+}
+
+func (a *App) emitCallEvent(event servicepkg.SessionEvent) {
+	if a.ctx == nil {
+		return
+	}
+
+	wailsruntime.EventsEmit(a.ctx, "call:session", event)
+}
+
+func (a *App) withSessionRetry(action func(*servicepkg.SignalingService) (CallStateResult, error)) (CallStateResult, error) {
+	signalingService, err := a.signalingService()
+	if err != nil {
+		return CallStateResult{}, err
+	}
+
+	result, err := action(signalingService)
+	if err == nil || !isUnauthorizedRequest(err) {
+		return result, err
+	}
+
+	if refreshErr := a.refreshAccessToken(); refreshErr != nil {
+		return CallStateResult{}, refreshErr
+	}
+
+	signalingService, err = a.signalingService()
+	if err != nil {
+		return CallStateResult{}, err
+	}
+
+	return action(signalingService)
+}
+
+func (a *App) refreshAccessToken() error {
+	authService, err := a.container.AuthService()
 	if err != nil {
 		return err
 	}
 
-	return signalingService.LeaveSession()
+	if err := authService.Refresh(); err != nil {
+		if isUnauthorizedRequest(err) || errors.Is(err, keyring.ErrNotFound) {
+			return fmt.Errorf("сессия истекла, войдите снова")
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+func isUnauthorizedRequest(err error) bool {
+	var requestErr *clientpkg.RequestError
+	return errors.As(err, &requestErr) && requestErr.StatusCode == http.StatusUnauthorized
+}
+
+func microphoneMessage(muted bool) string {
+	if muted {
+		return "Микрофон выключен"
+	}
+
+	return "Микрофон включен"
 }

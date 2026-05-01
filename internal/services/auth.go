@@ -1,5 +1,11 @@
 package service
 
+import (
+	"errors"
+	"net/http"
+	client "voice-chat-client/internal/clients"
+)
+
 type TokenStorage interface {
 	Save(accessToken, refreshToken string) error
 	GetAccess() string
@@ -57,6 +63,10 @@ func (s *AuthService) Refresh() error {
 
 	newAccess, newRefresh, err := s.client.Refresh(oldRefresh)
 	if err != nil {
+		var requestErr *client.RequestError
+		if errors.As(err, &requestErr) && requestErr.StatusCode == http.StatusUnauthorized {
+			_ = s.storage.Clear()
+		}
 		return err
 	}
 

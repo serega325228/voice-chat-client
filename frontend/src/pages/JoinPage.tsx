@@ -38,7 +38,7 @@ export function JoinPage({
               type="text"
               value={sessionId}
               onChange={(event) => setSessionId(event.target.value)}
-              placeholder="VOICE-2419"
+              placeholder="9d969273-a5ef-4f2e-89f4-61457cb3a889"
               autoComplete="off"
             />
           </label>
@@ -47,7 +47,7 @@ export function JoinPage({
             {error ? (
               <span className="form-feedback__error">{error}</span>
             ) : (
-              <span className="form-feedback__hint">Сессия создается и ищется через backend.</span>
+              <span className="form-feedback__hint">Используй UUID сессии из backend по новому контракту.</span>
             )}
           </div>
 

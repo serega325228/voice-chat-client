@@ -13,9 +13,9 @@ type AuthRoutes struct {
 
 func DefaultAuthRoutes() AuthRoutes {
 	return AuthRoutes{
-		RegisterPath: "/auth/register",
-		LoginPath:    "/auth/login",
-		RefreshPath:  "/auth/refresh",
+		RegisterPath: "/api/user/register",
+		LoginPath:    "/api/user/login",
+		RefreshPath:  "/api/token/refresh",
 	}
 }
 
@@ -44,10 +44,10 @@ func (c *AuthClient) Register(username, email, password string) (string, string,
 		return "", "", err
 	}
 
-	request, err := c.api.newJSONRequest(http.MethodPost, requestURL, map[string]string{
-		"username": username,
-		"email":    email,
-		"password": password,
+	request, err := c.api.newJSONRequest(http.MethodPost, requestURL, registerRequest{
+		Username: username,
+		Email:    email,
+		Password: password,
 	}, false)
 	if err != nil {
 		return "", "", err
@@ -67,9 +67,9 @@ func (c *AuthClient) Login(email, password string) (string, string, error) {
 		return "", "", err
 	}
 
-	request, err := c.api.newJSONRequest(http.MethodPost, requestURL, map[string]string{
-		"email":    email,
-		"password": password,
+	request, err := c.api.newJSONRequest(http.MethodPost, requestURL, loginRequest{
+		Email:    email,
+		Password: password,
 	}, false)
 	if err != nil {
 		return "", "", err
@@ -89,8 +89,8 @@ func (c *AuthClient) Refresh(refresh string) (string, string, error) {
 		return "", "", err
 	}
 
-	request, err := c.api.newJSONRequest(http.MethodPost, requestURL, map[string]string{
-		"refreshToken": refresh,
+	request, err := c.api.newJSONRequest(http.MethodPost, requestURL, refreshRequest{
+		Refresh: refresh,
 	}, false)
 	if err != nil {
 		return "", "", err
@@ -105,28 +105,31 @@ func (c *AuthClient) Refresh(refresh string) (string, string, error) {
 }
 
 type tokenResponse struct {
-	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken"`
-	Access       string `json:"access"`
-	Refresh      string `json:"refresh"`
+	Access  string `json:"access"`
+	Refresh string `json:"refresh"`
 }
 
 func (r tokenResponse) Resolve() (string, string, error) {
-	accessToken := r.AccessToken
-	if accessToken == "" {
-		accessToken = r.Access
-	}
-
-	refreshToken := r.RefreshToken
-	if refreshToken == "" {
-		refreshToken = r.Refresh
-	}
-
-	if accessToken == "" || refreshToken == "" {
+	if r.Access == "" || r.Refresh == "" {
 		return "", "", fmt.Errorf("client: auth response does not contain both access and refresh tokens")
 	}
 
-	return accessToken, refreshToken, nil
+	return r.Access, r.Refresh, nil
+}
+
+type registerRequest struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type refreshRequest struct {
+	Refresh string `json:"refresh"`
 }
 
 func normalizeAuthRoutes(routes AuthRoutes) AuthRoutes {

@@ -4,6 +4,8 @@ import type { Participant } from "../types/app";
 
 interface CallPageProps {
   sessionId: string;
+  callStatus: string;
+  callInfo: string | null;
   participants: Participant[];
   isMuted: boolean;
   isLoading: boolean;
@@ -13,14 +15,14 @@ interface CallPageProps {
 
 export function CallPage({
   sessionId,
+  callStatus,
+  callInfo,
   participants,
   isMuted,
   isLoading,
   onToggleMute,
   onLeaveCall,
 }: CallPageProps) {
-  const speakingCount = participants.filter((participant) => participant.isSpeaking).length;
-
   return (
     <section className="call-layout">
       <header className="session-banner">
@@ -30,20 +32,23 @@ export function CallPage({
         </div>
         <div className="session-stats">
           <div>
-            <strong>{participants.length}</strong>
-            <span>Участников</span>
+            <strong>{callStatus}</strong>
+            <span>Состояние</span>
           </div>
           <div>
-            <strong>{speakingCount}</strong>
-            <span>Говорят сейчас</span>
+            <strong>{isMuted ? "Выкл." : "Вкл."}</strong>
+            <span>Микрофон</span>
           </div>
         </div>
       </header>
 
       <main className="participants-panel">
         <div className="participants-panel__header">
-          <h2>Участники комнаты</h2>
-          <p>Сессия создана через backend. Голосовой обмен будет подключен отдельным шагом.</p>
+          <h2>Состояние звонка</h2>
+          <p>
+            {callInfo ??
+              "API не отдает список участников комнаты, поэтому клиент показывает локальное состояние звонка и автоматически обрабатывает удаленное аудио."}
+          </p>
         </div>
 
         <div className="participants-grid">
