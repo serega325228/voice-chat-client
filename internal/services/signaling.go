@@ -27,6 +27,14 @@ type WebRTCPeer interface {
 
 type WebRTCPeerFactory func() (WebRTCPeer, error)
 
+type SignalingTransport interface {
+	CreateSession() (*client.Session, error)
+	JoinSession(sessionID string) (*client.Session, error)
+	Send(message client.SignalingMessage) error
+	Receive() (client.SignalingMessage, error)
+	Close() error
+}
+
 type SessionEventKind string
 
 const (
@@ -46,7 +54,7 @@ type SessionEvent struct {
 type SessionEventHandler func(SessionEvent)
 
 type SignalingService struct {
-	client        *client.SignalingClient
+	client        SignalingTransport
 	newWebRTCPeer WebRTCPeerFactory
 
 	mu         sync.Mutex
@@ -56,7 +64,7 @@ type SignalingService struct {
 	onEvent    SessionEventHandler
 }
 
-func NewSignalingService(signalingClient *client.SignalingClient, newWebRTCPeer WebRTCPeerFactory) *SignalingService {
+func NewSignalingService(signalingClient SignalingTransport, newWebRTCPeer WebRTCPeerFactory) *SignalingService {
 	return &SignalingService{
 		client:        signalingClient,
 		newWebRTCPeer: newWebRTCPeer,

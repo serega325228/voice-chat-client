@@ -34,14 +34,22 @@ func DefaultConfig() Config {
 type Container struct {
 	config Config
 
-	mu sync.Mutex
-
-	httpClient       *http.Client
-	tokenStorage     *storage.TokenStorage
-	authClient       *client.AuthClient
-	authService      *service.AuthService
-	signalingClient  *client.SignalingClient
-	signalingService *service.SignalingService
+	httpClientOnce       sync.Once
+	httpClient           *http.Client
+	tokenStorageOnce     sync.Once
+	tokenStorage         *storage.TokenStorage
+	authClientOnce       sync.Once
+	authClient           *client.AuthClient
+	authClientErr        error
+	authServiceOnce      sync.Once
+	authService          *service.AuthService
+	authServiceErr       error
+	signalingClientOnce  sync.Once
+	signalingClient      *client.SignalingClient
+	signalingClientErr   error
+	signalingServiceOnce sync.Once
+	signalingService     *service.SignalingService
+	signalingServiceErr  error
 }
 
 func New(config Config) *Container {
@@ -53,129 +61,77 @@ func New(config Config) *Container {
 }
 
 func (c *Container) TokenStorage() *storage.TokenStorage {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.tokenStorage == nil {
+	c.tokenStorageOnce.Do(func() {
 		c.tokenStorage = storage.NewTokenStorage(c.config.KeyringService)
-	}
+	})
 
 	return c.tokenStorage
 }
 
 func (c *Container) HTTPClient() *http.Client {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.httpClient == nil {
+	c.httpClientOnce.Do(func() {
 		c.httpClient = &http.Client{Timeout: 10 * time.Second}
-	}
+	})
 
 	return c.httpClient
 }
 
 func (c *Container) AuthClient() (*client.AuthClient, error) {
-	c.mu.Lock()
-	if c.authClient != nil {
-		authClient := c.authClient
-		c.mu.Unlock()
-		return authClient, nil
-	}
-	c.mu.Unlock()
+	c.authClientOnce.Do(func() {
+		authClient, err := client.NewAuthClient(c.clientConfig(), client.DefaultAuthRoutes())
+		if err != nil {
+			c.authClientErr = fmt.Errorf("container: init auth client: %w", err)
+			return
+		}
 
-	config := c.clientConfig()
-	authClient, err := client.NewAuthClient(config, client.DefaultAuthRoutes())
-	if err != nil {
-		return nil, fmt.Errorf("container: init auth client: %w", err)
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.authClient == nil {
 		c.authClient = authClient
-	}
+	})
 
-	return c.authClient, nil
+	return c.authClient, c.authClientErr
 }
 
 func (c *Container) AuthService() (*service.AuthService, error) {
-	c.mu.Lock()
-	if c.authService != nil {
-		authService := c.authService
-		c.mu.Unlock()
-		return authService, nil
-	}
-	c.mu.Unlock()
+	c.authServiceOnce.Do(func() {
+		authClient, err := c.AuthClient()
+		if err != nil {
+			c.authServiceErr = err
+			return
+		}
 
-	authClient, err := c.AuthClient()
-	if err != nil {
-		return nil, err
-	}
+		c.authService = service.NewAuthService(authClient, c.TokenStorage())
+	})
 
-	authService := service.NewAuthService(authClient, c.TokenStorage())
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.authService == nil {
-		c.authService = authService
-	}
-
-	return c.authService, nil
+	return c.authService, c.authServiceErr
 }
 
 func (c *Container) SignalingClient() (*client.SignalingClient, error) {
-	c.mu.Lock()
-	if c.signalingClient != nil {
-		signalingClient := c.signalingClient
-		c.mu.Unlock()
-		return signalingClient, nil
-	}
-	c.mu.Unlock()
+	c.signalingClientOnce.Do(func() {
+		signalingClient, err := client.NewSignalingClient(c.clientConfig(), client.DefaultSignalingRoutes())
+		if err != nil {
+			c.signalingClientErr = fmt.Errorf("container: init signaling client: %w", err)
+			return
+		}
 
-	config := c.clientConfig()
-	signalingClient, err := client.NewSignalingClient(config, client.DefaultSignalingRoutes())
-	if err != nil {
-		return nil, fmt.Errorf("container: init signaling client: %w", err)
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.signalingClient == nil {
 		c.signalingClient = signalingClient
-	}
+	})
 
-	return c.signalingClient, nil
+	return c.signalingClient, c.signalingClientErr
 }
 
 func (c *Container) SignalingService() (*service.SignalingService, error) {
-	c.mu.Lock()
-	if c.signalingService != nil {
-		signalingService := c.signalingService
-		c.mu.Unlock()
-		return signalingService, nil
-	}
-	c.mu.Unlock()
+	c.signalingServiceOnce.Do(func() {
+		signalingClient, err := c.SignalingClient()
+		if err != nil {
+			c.signalingServiceErr = err
+			return
+		}
 
-	signalingClient, err := c.SignalingClient()
-	if err != nil {
-		return nil, err
-	}
-
-	signalingService := service.NewSignalingService(signalingClient, func() (service.WebRTCPeer, error) {
-		return service.NewManagedSessionPeer(service.WebRTCConfig{}, service.DefaultSoundConfig())
+		c.signalingService = service.NewSignalingService(signalingClient, func() (service.WebRTCPeer, error) {
+			return service.NewManagedSessionPeer(service.WebRTCConfig{}, service.DefaultSoundConfig())
+		})
 	})
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.signalingService == nil {
-		c.signalingService = signalingService
-	}
-
-	return c.signalingService, nil
+	return c.signalingService, c.signalingServiceErr
 }
 
 func (c *Container) clientConfig() client.ClientConfig {

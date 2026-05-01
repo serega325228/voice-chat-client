@@ -84,7 +84,7 @@ export function AuthPage({
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Минимум 6 символов"
+              placeholder="Минимум 8 символов"
               autoComplete="current-password"
             />
           </label>

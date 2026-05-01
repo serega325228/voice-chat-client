@@ -305,7 +305,7 @@ type signalingEnvelope struct {
 
 func (e signalingEnvelope) asError() error {
 	if trimmed := strings.TrimSpace(e.Error); trimmed != "" {
-		return fmt.Errorf(trimmed)
+		return errors.New(trimmed)
 	}
 
 	return fmt.Errorf("client: signaling request failed")

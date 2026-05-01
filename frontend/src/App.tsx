@@ -13,7 +13,7 @@ import { EventsOn } from "../wailsjs/runtime/runtime";
 import { CallPage } from "./pages/CallPage";
 import { AuthPage } from "./pages/AuthPage";
 import { JoinPage } from "./pages/JoinPage";
-import type { AppState, Participant } from "./types/app";
+import type { AppState, CallStatus, Participant } from "./types/app";
 
 const INITIAL_STATE: AppState = {
   isAuthenticated: false,
@@ -58,11 +58,11 @@ const resolveBootstrapValue = (result: Partial<{ isAuthenticated: boolean; authE
 });
 
 const resolveCallState = (
-  result: Partial<{ sessionId: string; isMuted: boolean; status: "idle" | "active"; message?: string }>,
-) => ({
+  result: Partial<{ sessionId: string; isMuted: boolean; status: string; message?: string }>,
+): { sessionId: string; isMuted: boolean; status: CallStatus; message: string | null } => ({
   sessionId: result.sessionId ?? "",
   isMuted: result.isMuted ?? false,
-  status: result.status ?? "idle",
+  status: result.status === "active" ? "active" : "idle",
   message: result.message ?? null,
 });
 
@@ -185,7 +185,7 @@ function App() {
   const onLogin = async ({ email, password }: { email: string; password: string }) => {
     const normalizedEmail = email.trim();
 
-    if (!normalizedEmail || password.trim().length < 6) {
+    if (!normalizedEmail || password.trim().length < 8) {
       setAppState((current) => ({
         ...current,
         authError: "Укажи корректный email и пароль",
@@ -229,7 +229,7 @@ function App() {
     const normalizedUsername = username.trim();
     const normalizedEmail = email.trim();
 
-    if (!normalizedUsername || !normalizedEmail || password.trim().length < 6) {
+    if (!normalizedUsername || !normalizedEmail || password.trim().length < 8) {
       setAppState((current) => ({
         ...current,
         authError: "Для регистрации нужны username, email и пароль",
