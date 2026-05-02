@@ -81,7 +81,7 @@ func (s *SignalingService) CreateSession() (*client.Session, error) {
 		return nil, err
 	}
 
-	if err := s.startSession(session, true); err != nil {
+	if err := s.startSession(session); err != nil {
 		_ = s.closeCurrentSession()
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (s *SignalingService) JoinSession(sessionID string) (*client.Session, error
 		return nil, err
 	}
 
-	if err := s.startSession(session, false); err != nil {
+	if err := s.startSession(session); err != nil {
 		_ = s.closeCurrentSession()
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (s *SignalingService) LeaveSession() error {
 	return nil
 }
 
-func (s *SignalingService) startSession(session *client.Session, sendOffer bool) error {
+func (s *SignalingService) startSession(session *client.Session) error {
 	if s.newWebRTCPeer == nil {
 		return errors.New("signaling: webrtc peer factory is not configured")
 	}
@@ -150,25 +150,23 @@ func (s *SignalingService) startSession(session *client.Session, sendOffer bool)
 	go s.forwardLocalCandidates(ctx, session.ID, peer)
 	go s.consumeSignalingMessages(ctx, session.ID, peer)
 
-	if sendOffer {
-		offer, err := peer.CreateOffer()
-		if err != nil {
-			cancel()
-			s.client.Close()
-			peer.Close()
-			return err
-		}
+	offer, err := peer.CreateOffer()
+	if err != nil {
+		cancel()
+		s.client.Close()
+		peer.Close()
+		return err
+	}
 
-		if err := s.client.Send(client.SignalingMessage{
-			Type:      client.SignalingEventOffer,
-			SessionID: session.ID,
-			Offer:     &offer,
-		}); err != nil {
-			cancel()
-			s.client.Close()
-			peer.Close()
-			return err
-		}
+	if err := s.client.Send(client.SignalingMessage{
+		Type:      client.SignalingEventOffer,
+		SessionID: session.ID,
+		Offer:     &offer,
+	}); err != nil {
+		cancel()
+		s.client.Close()
+		peer.Close()
+		return err
 	}
 
 	s.flushLocalCandidates(session.ID, peer)
