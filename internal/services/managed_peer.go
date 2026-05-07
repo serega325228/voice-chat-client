@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
-	"voice-chat-client/internal/lib/audio"
-	processingpipeline "voice-chat-client/internal/processing_pipeline"
+	"selfcord/internal/lib/audio"
+	pipeline "selfcord/internal/pipeline"
 
 	"github.com/pion/webrtc/v4"
 )
@@ -19,9 +19,9 @@ type managedSessionPeer struct {
 func NewManagedSessionPeer(webrtcConfig WebRTCConfig, soundConfig SoundConfig) (WebRTCPeer, error) {
 	pipelineCtx, pipelineStop := context.WithCancel(context.Background())
 
-	captureSink, captureSource := processingpipeline.New(
+	captureSink, captureSource := pipeline.New(
 		pipelineCtx,
-		processingpipeline.RNNoiseWorker,
+		pipeline.RNNoiseWorker,
 	)
 	captureGate := audio.NewMuteableSampleSink(captureSink)
 

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"selfcord/internal/lib/audio"
 	"strings"
 	"sync"
 	"time"
-	"voice-chat-client/internal/lib/audio"
 
 	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
@@ -75,7 +75,7 @@ func NewWebRTCService(
 			SDPFmtpLine: "minptime=10;useinbandfec=1",
 		},
 		"audio",
-		"voice-chat",
+		"selfcord",
 	)
 	if err != nil {
 		peerConnection.Close()

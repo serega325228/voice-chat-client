@@ -31,19 +31,20 @@ export function AuthPage({
   return (
     <section className="panel panel--auth">
       <div className="panel__hero">
-        <span className="eyebrow">Voice Chat Client</span>
-        <h1>Вход в голосовые комнаты</h1>
+        <span className="eyebrow">selfcord</span>
+        <h1>Голосовые комнаты по ID сессии</h1>
         <p>
-          Авторизуйся, создай комнату или подключись к существующей сессии.
+          Авторизация, создание комнаты и подключение к существующей сессии
+          остаются в одном компактном клиенте.
         </p>
         <div className="hero-metrics">
           <div>
-            <strong>Wails</strong>
-            <span>Go и React в одном клиенте</span>
+            <strong>Auth</strong>
+            <span>Email-вход и регистрация</span>
           </div>
           <div>
-            <strong>Сессии</strong>
-            <span>Вход, создание и подключение</span>
+            <strong>Rooms</strong>
+            <span>Создание и вход по UUID</span>
           </div>
         </div>
       </div>
@@ -51,18 +52,18 @@ export function AuthPage({
       <div className="panel__card">
         <div className="card-header">
           <span className="eyebrow">Авторизация</span>
-          <h2>Вход и регистрация</h2>
-          <p>Для входа используется email, для регистрации нужны username, email и пароль.</p>
+          <h2>Войти в selfcord</h2>
+          <p>Для входа используется email, для регистрации нужны никнейм, email и пароль.</p>
         </div>
 
         <form className="stack" onSubmit={handleLogin}>
           <label className="field">
-            <span>Username</span>
+            <span>Никнейм</span>
             <input
               type="text"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="sereg"
+              placeholder="nova"
               autoComplete="nickname"
             />
           </label>
@@ -94,7 +95,7 @@ export function AuthPage({
             {!error && info ? <span className="form-feedback__info">{info}</span> : null}
             {!error && !info ? (
               <span className="form-feedback__hint">
-                Войди в существующий аккаунт или зарегистрируй новый.
+                Войди в существующий аккаунт или создай новый профиль.
               </span>
             ) : null}
           </div>

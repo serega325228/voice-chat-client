@@ -3,7 +3,7 @@ package service
 import (
 	"errors"
 	"net/http"
-	client "voice-chat-client/internal/clients"
+	client "selfcord/internal/clients"
 )
 
 type TokenStorage interface {

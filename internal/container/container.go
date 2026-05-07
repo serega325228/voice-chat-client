@@ -4,17 +4,17 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	client "selfcord/internal/clients"
+	service "selfcord/internal/services"
+	storage "selfcord/internal/storages"
 	"strings"
 	"sync"
 	"time"
-	client "voice-chat-client/internal/clients"
-	service "voice-chat-client/internal/services"
-	storage "voice-chat-client/internal/storages"
 )
 
 const (
 	defaultAPIBaseURL  = "http://localhost:8082"
-	defaultKeyringName = "voice-chat-client"
+	defaultKeyringName = "selfcord"
 )
 
 type Config struct {

@@ -8,20 +8,25 @@
 
 :root {
   font-family: "Nunito", "Segoe UI", sans-serif;
-  color: #e2e8f0;
-  background:
-    radial-gradient(circle at top, rgba(14, 165, 233, 0.12), transparent 28%),
-    linear-gradient(180deg, #020617 0%, #0f172a 100%);
+  color: #ecf3ff;
+  background: #07111f;
   color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --color-text: #e2e8f0;
-  --color-text-muted: #94a3b8;
-  --color-accent: #38bdf8;
-  --color-danger: #fda4af;
-  --color-success: #86efac;
+}
+
+:root[data-theme="paper"] {
+  color: #17211f;
+  background: #f4efe4;
+  color-scheme: light;
+}
+
+:root[data-theme="forest"] {
+  color: #edf8ee;
+  background: #07130d;
+  color-scheme: dark;
 }
 
 * {
@@ -40,7 +45,8 @@ body {
 }
 
 body {
-  color: var(--color-text);
+  color: inherit;
+  background: inherit;
 }
 
 button,

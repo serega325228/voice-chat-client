@@ -9,7 +9,7 @@ import (
 	"unsafe"
 
 	"context"
-	"voice-chat-client/internal/lib/audio"
+	"selfcord/internal/lib/audio"
 )
 
 const rnnoiseFrameSize = 480

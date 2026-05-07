@@ -2,7 +2,7 @@ package processingpipeline
 
 import (
 	"context"
-	"voice-chat-client/internal/lib/audio"
+	"selfcord/internal/lib/audio"
 )
 
 const defaultChannelBufferSize = 8

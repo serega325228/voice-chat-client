@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	clientpkg "selfcord/internal/clients"
+	containerpkg "selfcord/internal/container"
+	servicepkg "selfcord/internal/services"
 	"strings"
-	clientpkg "voice-chat-client/internal/clients"
-	containerpkg "voice-chat-client/internal/container"
-	servicepkg "voice-chat-client/internal/services"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/zalando/go-keyring"

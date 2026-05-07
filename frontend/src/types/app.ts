@@ -1,5 +1,6 @@
 export type AppPage = "auth" | "join" | "call";
 export type CallStatus = "idle" | "active";
+export type AppTheme = "midnight" | "paper" | "forest";
 
 export interface Participant {
   id: string;

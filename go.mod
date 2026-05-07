@@ -1,4 +1,4 @@
-module voice-chat-client
+module selfcord
 
 go 1.25.0
 
@@ -58,5 +58,3 @@ require (
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.10.0 // indirect
 )
-
-// replace github.com/wailsapp/wails/v2 v2.12.0 => /home/sereg/go/pkg/mod

@@ -2,7 +2,7 @@ package service
 
 import (
 	"fmt"
-	"voice-chat-client/internal/lib/audio"
+	"selfcord/internal/lib/audio"
 
 	"github.com/gen2brain/malgo"
 )

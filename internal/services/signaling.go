@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	client "selfcord/internal/clients"
 	"sync"
 	"time"
-	client "voice-chat-client/internal/clients"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v4"
