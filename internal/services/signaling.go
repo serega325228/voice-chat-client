@@ -53,6 +53,8 @@ type SessionEvent struct {
 
 type SessionEventHandler func(SessionEvent)
 
+const signalingClosedMessage = "signaling connection closed"
+
 type SignalingService struct {
 	client        SignalingTransport
 	newWebRTCPeer WebRTCPeerFactory
@@ -244,15 +246,16 @@ func (s *SignalingService) consumeSignalingMessages(ctx context.Context, session
 		default:
 		}
 
-		message, err := s.client.Receive()
-		if err != nil {
-			if errors.Is(err, client.ErrSignalingAcknowledgement) {
-				continue
-			}
-			if errors.Is(err, io.EOF) || websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				return
-			}
-			s.reportAsyncError(err)
+			message, err := s.client.Receive()
+			if err != nil {
+				if errors.Is(err, client.ErrSignalingAcknowledgement) {
+					continue
+				}
+				if errors.Is(err, io.EOF) || websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					s.reportAsyncError(errors.New(signalingClosedMessage))
+					return
+				}
+				s.reportAsyncError(err)
 			return
 		}
 
