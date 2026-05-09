@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	defaultAPIBaseURL  = "http://localhost:8082"
+	defaultAPIBaseURL  = "http://62.84.122.133:8082"
 	defaultKeyringName = "selfcord"
 )
 
