@@ -38,6 +38,7 @@ type WebRTCService struct {
 	localCandidates         []webrtc.ICECandidateInit
 	pendingRemoteCandidates []webrtc.ICECandidateInit
 	remoteDescriptionSet    bool
+	connectionStateHandler  func(webrtc.PeerConnectionState)
 }
 
 func NewWebRTCService(
@@ -101,6 +102,7 @@ func NewWebRTCService(
 
 	peerConnection.OnICECandidate(service.onICECandidate)
 	peerConnection.OnTrack(service.onTrack)
+	peerConnection.OnConnectionStateChange(service.onConnectionStateChange)
 
 	go service.readSenderRTCP(sender)
 	go service.forwardPipelineToTrack()
@@ -191,6 +193,13 @@ func (s *WebRTCService) Close() error {
 	return nil
 }
 
+func (s *WebRTCService) SetConnectionStateHandler(handler func(webrtc.PeerConnectionState)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.connectionStateHandler = handler
+}
+
 func (s *WebRTCService) onICECandidate(candidate *webrtc.ICECandidate) {
 	if candidate == nil {
 		return
@@ -199,6 +208,16 @@ func (s *WebRTCService) onICECandidate(candidate *webrtc.ICECandidate) {
 	s.mu.Lock()
 	s.localCandidates = append(s.localCandidates, candidate.ToJSON())
 	s.mu.Unlock()
+}
+
+func (s *WebRTCService) onConnectionStateChange(state webrtc.PeerConnectionState) {
+	s.mu.Lock()
+	handler := s.connectionStateHandler
+	s.mu.Unlock()
+
+	if handler != nil {
+		handler(state)
+	}
 }
 
 func (s *WebRTCService) onTrack(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {

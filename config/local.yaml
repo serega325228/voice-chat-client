@@ -1,0 +1,14 @@
+env: "local"
+api:
+    base_url: "http://10.129.0.24:8082"
+    websocket_base_url: ""
+keyring:
+    service: "selfcord"
+webrtc:
+    ice_servers:
+        - urls:
+              - "stun:localhost:3478"
+        - urls:
+              - "turn:localhost:3478?transport=udp"
+          username: "voicechat"
+          credential: "voicechatpass"

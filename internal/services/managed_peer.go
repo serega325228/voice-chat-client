@@ -76,6 +76,10 @@ func (p *managedSessionPeer) IsMuted() bool {
 	return p.captureGate.IsMuted()
 }
 
+func (p *managedSessionPeer) SetConnectionStateHandler(handler func(webrtc.PeerConnectionState)) {
+	p.webrtc.SetConnectionStateHandler(handler)
+}
+
 func (p *managedSessionPeer) Close() error {
 	if p.pipelineStop != nil {
 		p.pipelineStop()

@@ -3,17 +3,18 @@ package container
 import (
 	"fmt"
 	"net/http"
-	"os"
 	client "selfcord/internal/clients"
 	service "selfcord/internal/services"
 	storage "selfcord/internal/storages"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pion/webrtc/v4"
 )
 
 const (
-	defaultAPIBaseURL  = "http://62.84.122.133:8082"
+	defaultAPIBaseURL  = "http://localhost:8082"
 	defaultKeyringName = "selfcord"
 )
 
@@ -21,13 +22,19 @@ type Config struct {
 	APIBaseURL       string
 	WebSocketBaseURL string
 	KeyringService   string
+	WebRTCICEServers []ICEServer
+}
+
+type ICEServer struct {
+	URLs       []string
+	Username   string
+	Credential string
 }
 
 func DefaultConfig() Config {
 	return Config{
-		APIBaseURL:       getenv("VOICE_CHAT_API_BASE_URL", defaultAPIBaseURL),
-		WebSocketBaseURL: strings.TrimSpace(os.Getenv("VOICE_CHAT_WS_BASE_URL")),
-		KeyringService:   getenv("VOICE_CHAT_KEYRING_SERVICE", defaultKeyringName),
+		APIBaseURL:     defaultAPIBaseURL,
+		KeyringService: defaultKeyringName,
 	}
 }
 
@@ -127,7 +134,9 @@ func (c *Container) SignalingService() (*service.SignalingService, error) {
 		}
 
 		c.signalingService = service.NewSignalingService(signalingClient, func() (service.WebRTCPeer, error) {
-			return service.NewManagedSessionPeer(service.WebRTCConfig{}, service.DefaultSoundConfig())
+			return service.NewManagedSessionPeer(service.WebRTCConfig{
+				ICEServers: c.webRTCICEServers(),
+			}, service.DefaultSoundConfig())
 		})
 	})
 
@@ -163,11 +172,18 @@ func normalizeConfig(config Config) Config {
 	return config
 }
 
-func getenv(key, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
+func (c *Container) webRTCICEServers() []webrtc.ICEServer {
+	servers := make([]webrtc.ICEServer, 0, len(c.config.WebRTCICEServers))
+	for _, server := range c.config.WebRTCICEServers {
+		if len(server.URLs) == 0 {
+			continue
+		}
+		servers = append(servers, webrtc.ICEServer{
+			URLs:       append([]string(nil), server.URLs...),
+			Username:   server.Username,
+			Credential: server.Credential,
+		})
 	}
 
-	return value
+	return servers
 }

@@ -20,6 +20,7 @@ type WebRTCPeer interface {
 	SetAnswer(answer webrtc.SessionDescription) error
 	AddRemoteCandidate(candidate webrtc.ICECandidateInit) error
 	DrainLocalCandidates() []webrtc.ICECandidateInit
+	SetConnectionStateHandler(handler func(webrtc.PeerConnectionState))
 	SetMuted(muted bool)
 	IsMuted() bool
 	Close() error
@@ -30,6 +31,7 @@ type WebRTCPeerFactory func() (WebRTCPeer, error)
 type SignalingTransport interface {
 	CreateSession() (*client.Session, error)
 	JoinSession(sessionID string) (*client.Session, error)
+	ResumeSession(reconnectToken string) (*client.Session, error)
 	Send(message client.SignalingMessage) error
 	Receive() (client.SignalingMessage, error)
 	Close() error
@@ -53,17 +55,23 @@ type SessionEvent struct {
 
 type SessionEventHandler func(SessionEvent)
 
-const signalingClosedMessage = "signaling connection closed"
+const (
+	signalingClosedMessage = "signaling connection closed"
+	reconnectTokenTTL      = 5 * time.Minute
+	reconnectMinDelay      = 250 * time.Millisecond
+	reconnectMaxDelay      = 5 * time.Second
+)
 
 type SignalingService struct {
 	client        SignalingTransport
 	newWebRTCPeer WebRTCPeerFactory
 
-	mu         sync.Mutex
-	session    *client.Session
-	peer       WebRTCPeer
-	loopCancel context.CancelFunc
-	onEvent    SessionEventHandler
+	mu           sync.Mutex
+	session      *client.Session
+	peer         WebRTCPeer
+	loopCancel   context.CancelFunc
+	reconnecting bool
+	onEvent      SessionEventHandler
 }
 
 func NewSignalingService(signalingClient SignalingTransport, newWebRTCPeer WebRTCPeerFactory) *SignalingService {
@@ -148,6 +156,21 @@ func (s *SignalingService) startSession(session *client.Session) error {
 	s.peer = peer
 	s.loopCancel = cancel
 	s.mu.Unlock()
+
+	peer.SetConnectionStateHandler(func(state webrtc.PeerConnectionState) {
+		if !isRecoverableWebRTCState(state) {
+			return
+		}
+
+		s.mu.Lock()
+		active := s.session != nil && s.session.ID == session.ID && s.peer == peer
+		s.mu.Unlock()
+		if !active {
+			return
+		}
+
+		go s.reconnectActiveSession(errors.New("webrtc connection " + state.String()))
+	})
 
 	go s.forwardLocalCandidates(ctx, session.ID, peer)
 	go s.consumeSignalingMessages(ctx, session.ID, peer)
@@ -246,16 +269,16 @@ func (s *SignalingService) consumeSignalingMessages(ctx context.Context, session
 		default:
 		}
 
-			message, err := s.client.Receive()
-			if err != nil {
-				if errors.Is(err, client.ErrSignalingAcknowledgement) {
-					continue
-				}
-				if errors.Is(err, io.EOF) || websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					s.reportAsyncError(errors.New(signalingClosedMessage))
-					return
-				}
-				s.reportAsyncError(err)
+		message, err := s.client.Receive()
+		if err != nil {
+			if errors.Is(err, client.ErrSignalingAcknowledgement) {
+				continue
+			}
+			if errors.Is(err, io.EOF) || websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				go s.reconnectActiveSession(errors.New(signalingClosedMessage))
+				return
+			}
+			go s.reconnectActiveSession(err)
 			return
 		}
 
@@ -297,7 +320,7 @@ func (s *SignalingService) handleSignalingMessage(sessionID string, peer WebRTCP
 			SessionID: sessionID,
 			Answer:    &answer,
 		}); err != nil {
-			s.reportAsyncError(err)
+			go s.reconnectActiveSession(err)
 			return
 		}
 		s.flushLocalCandidates(sessionID, peer)
@@ -312,19 +335,28 @@ func (s *SignalingService) flushLocalCandidates(sessionID string, peer WebRTCPee
 			SessionID: sessionID,
 			Candidate: &candidate,
 		}); err != nil {
-			s.reportAsyncError(err)
+			go s.reconnectActiveSession(err)
 			return
 		}
 	}
 }
 
 func (s *SignalingService) closeCurrentSession() error {
+	return s.closeCurrentSessionWithReconnectState(false)
+}
+
+func (s *SignalingService) closeCurrentSessionForReconnect() error {
+	return s.closeCurrentSessionWithReconnectState(true)
+}
+
+func (s *SignalingService) closeCurrentSessionWithReconnectState(keepReconnecting bool) error {
 	s.mu.Lock()
 	peer := s.peer
 	cancel := s.loopCancel
 	s.session = nil
 	s.peer = nil
 	s.loopCancel = nil
+	s.reconnecting = keepReconnecting && s.reconnecting
 	s.mu.Unlock()
 
 	if cancel != nil {
@@ -342,6 +374,78 @@ func (s *SignalingService) closeCurrentSession() error {
 	}
 
 	return nil
+}
+
+func (s *SignalingService) reconnectActiveSession(reason error) {
+	s.mu.Lock()
+	if s.reconnecting {
+		s.mu.Unlock()
+		return
+	}
+	if s.session == nil || s.session.ReconnectToken == "" {
+		sessionID := ""
+		if s.session != nil {
+			sessionID = s.session.ID
+		}
+		s.mu.Unlock()
+		s.reportAsyncError(reason)
+		if sessionID == "" {
+			return
+		}
+		return
+	}
+
+	token := s.session.ReconnectToken
+	sessionID := s.session.ID
+	s.reconnecting = true
+	s.mu.Unlock()
+
+	_ = s.closeCurrentSessionForReconnect()
+
+	deadline := time.Now().Add(reconnectTokenTTL)
+	delay := reconnectMinDelay
+
+	for {
+		s.mu.Lock()
+		shouldContinue := s.reconnecting
+		s.mu.Unlock()
+		if !shouldContinue {
+			return
+		}
+
+		resumedSession, err := s.client.ResumeSession(token)
+		if err == nil {
+			if err := s.startSession(resumedSession); err == nil {
+				s.mu.Lock()
+				s.reconnecting = false
+				s.mu.Unlock()
+				return
+			}
+
+			token = resumedSession.ReconnectToken
+			_ = s.closeCurrentSessionForReconnect()
+		}
+
+		if time.Now().Add(delay).After(deadline) {
+			break
+		}
+
+		time.Sleep(delay)
+		delay *= 2
+		if delay > reconnectMaxDelay {
+			delay = reconnectMaxDelay
+		}
+	}
+
+	s.mu.Lock()
+	s.reconnecting = false
+	s.mu.Unlock()
+
+	s.emitEvent(SessionEvent{
+		Kind:      SessionEventFailed,
+		SessionID: sessionID,
+		Message:   reason.Error(),
+	})
 }
 
 func (s *SignalingService) reportAsyncError(err error) {
@@ -385,4 +489,8 @@ func mutedStateMessage(muted bool) string {
 	}
 
 	return "Микрофон включен"
+}
+
+func isRecoverableWebRTCState(state webrtc.PeerConnectionState) bool {
+	return state == webrtc.PeerConnectionStateDisconnected || state == webrtc.PeerConnectionStateFailed
 }

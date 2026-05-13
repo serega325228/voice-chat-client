@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	configpkg "selfcord/internal/config"
 	containerpkg "selfcord/internal/container"
 
 	"github.com/wailsapp/wails/v2"
@@ -13,7 +14,8 @@ import (
 var assets embed.FS
 
 func main() {
-	container := containerpkg.New(containerpkg.DefaultConfig())
+	cfg := configpkg.MustLoad()
+	container := containerpkg.New(cfg.ContainerConfig())
 
 	// Create an instance of the app structure
 	app := NewApp(container)

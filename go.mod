@@ -10,6 +10,7 @@ require (
 	github.com/thesyncim/gopus v0.0.0-20260424021241-cee7f8946b93
 	github.com/wailsapp/wails/v2 v2.12.0
 	github.com/zalando/go-keyring v0.2.8
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

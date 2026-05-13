@@ -14,8 +14,10 @@ import (
 )
 
 type Session struct {
-	ID           string
-	WebSocketURL string
+	ID             string
+	PeerID         string
+	ReconnectToken string
+	WebSocketURL   string
 }
 
 var ErrSignalingAcknowledgement = errors.New("client: signaling acknowledgement")
@@ -99,7 +101,14 @@ func (c *SignalingClient) CreateSession() (*Session, error) {
 		return nil, fmt.Errorf("client: create_session response does not contain session_id")
 	}
 
-	return &Session{ID: response.SessionID}, nil
+	if response.PeerID == "" {
+		return nil, fmt.Errorf("client: create_session response does not contain peer_id")
+	}
+	if response.ReconnectToken == "" {
+		return nil, fmt.Errorf("client: create_session response does not contain reconnect_token")
+	}
+
+	return &Session{ID: response.SessionID, PeerID: response.PeerID, ReconnectToken: response.ReconnectToken}, nil
 }
 
 func (c *SignalingClient) JoinSession(sessionID string) (*Session, error) {
@@ -124,8 +133,56 @@ func (c *SignalingClient) JoinSession(sessionID string) (*Session, error) {
 	if response.Status != signalingStatusSuccess {
 		return nil, fmt.Errorf("client: join_session returned unexpected status %q", response.Status)
 	}
+	if response.SessionID == "" {
+		response.SessionID = sessionID
+	}
+	if response.PeerID == "" {
+		return nil, fmt.Errorf("client: join_session response does not contain peer_id")
+	}
+	if response.ReconnectToken == "" {
+		return nil, fmt.Errorf("client: join_session response does not contain reconnect_token")
+	}
 
-	return &Session{ID: sessionID}, nil
+	return &Session{ID: response.SessionID, PeerID: response.PeerID, ReconnectToken: response.ReconnectToken}, nil
+}
+
+func (c *SignalingClient) ResumeSession(reconnectToken string) (*Session, error) {
+	if strings.TrimSpace(reconnectToken) == "" {
+		return nil, fmt.Errorf("client: reconnect token is required")
+	}
+
+	if err := c.Connect(nil); err != nil {
+		return nil, err
+	}
+
+	if err := c.writeEnvelope(signalingEnvelope{
+		Type: signalingCommandResumeSession,
+		Data: resumeCommandData{ReconnectToken: reconnectToken},
+	}); err != nil {
+		return nil, err
+	}
+
+	response, err := c.receiveEnvelope()
+	if err != nil {
+		return nil, err
+	}
+	if response.Status == signalingStatusError {
+		return nil, response.asError()
+	}
+	if response.Status != signalingStatusSuccess {
+		return nil, fmt.Errorf("client: resume_session returned unexpected status %q", response.Status)
+	}
+	if response.SessionID == "" {
+		return nil, fmt.Errorf("client: resume_session response does not contain session_id")
+	}
+	if response.PeerID == "" {
+		return nil, fmt.Errorf("client: resume_session response does not contain peer_id")
+	}
+	if response.ReconnectToken == "" {
+		return nil, fmt.Errorf("client: resume_session response does not contain reconnect_token")
+	}
+
+	return &Session{ID: response.SessionID, PeerID: response.PeerID, ReconnectToken: response.ReconnectToken}, nil
 }
 
 func (c *SignalingClient) LeaveSession(sessionID string) error {
@@ -291,16 +348,19 @@ func normalizeSignalingRoutes(routes SignalingRoutes) SignalingRoutes {
 const (
 	signalingCommandCreateSession = "create_session"
 	signalingCommandJoinSession   = "join_session"
+	signalingCommandResumeSession = "resume_session"
 	signalingStatusSuccess        = "success"
 	signalingStatusError          = "error"
 )
 
 type signalingEnvelope struct {
-	Type      string `json:"type,omitempty"`
-	Data      any    `json:"data,omitempty"`
-	Status    string `json:"status,omitempty"`
-	Error     string `json:"error,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
+	Type           string `json:"type,omitempty"`
+	Data           any    `json:"data,omitempty"`
+	Status         string `json:"status,omitempty"`
+	Error          string `json:"error,omitempty"`
+	SessionID      string `json:"session_id,omitempty"`
+	PeerID         string `json:"peer_id,omitempty"`
+	ReconnectToken string `json:"reconnect_token,omitempty"`
 }
 
 func (e signalingEnvelope) asError() error {
@@ -315,6 +375,10 @@ type emptyCommandData struct{}
 
 type sessionCommandData struct {
 	SessionID string `json:"session_id"`
+}
+
+type resumeCommandData struct {
+	ReconnectToken string `json:"reconnect_token"`
 }
 
 type sessionDescriptionData struct {
